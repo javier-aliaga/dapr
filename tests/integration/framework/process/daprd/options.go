@@ -66,6 +66,7 @@ type options struct {
 	schedulerAddresses      []string
 	maxBodySize             *string
 	allowedOrigins          *string
+	goProcess               bool
 }
 
 func WithExecOptions(execOptions ...exec.Option) Option {
@@ -77,6 +78,12 @@ func WithExecOptions(execOptions ...exec.Option) Option {
 func WithAppID(appID string) Option {
 	return func(o *options) {
 		o.appID = appID
+	}
+}
+
+func WithGoProcess(goProcess bool) Option {
+	return func(o *options) {
+		o.goProcess = goProcess
 	}
 }
 

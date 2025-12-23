@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	otelbaggage "go.opentelemetry.io/otel/baggage"
 	otelTrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -399,8 +400,12 @@ func (a *api) BulkPublishEventAlpha1(ctx context.Context, in *runtimev1pb.BulkPu
 
 		if !rawPayload {
 			// Extract trace context from context.
-			_, childSpan := diag.StartGRPCProducerSpanChildFromParent(ctx, span, "/dapr.proto.runtime.v1.Dapr/BulkPublishEventAlpha1/")
+			_, childSpan := diag.StartGRPCProducerSpanChildFromParent(ctx, span, "/dapr.proto.runtime.v1.Dapr/BulkPublishEventAlpha1/event")
 			traceID, traceState := diag.TraceIDAndStateFromSpan(childSpan)
+			childSpan.SetAttributes(
+				attribute.KeyValue{Key: "entry.id", Value: attribute.StringValue(entry.GetEntryId())},
+				attribute.KeyValue{Key: "entry.content.type", Value: attribute.StringValue(entry.GetContentType())},
+			)
 
 			// For multiple events in a single bulk call traceParent is different for each event.
 			// Populate W3C traceparent to cloudevent envelope

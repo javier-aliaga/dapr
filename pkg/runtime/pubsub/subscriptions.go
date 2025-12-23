@@ -375,10 +375,10 @@ func GRPCEnvelopeFromSubscriptionMessage(ctx context.Context, msg *SubscribedMes
 	if iTraceID != nil {
 		if traceID, ok := iTraceID.(string); ok {
 			sc, _ := diag.SpanContextFromW3CString(traceID)
-			spanName := "pubsub/" + msg.Topic
+			spanName := "/dapr.proto.runtime.v1.Dapr/SubscribeEvent"
 
 			// no ops if trace is off
-			ctx, span = diag.StartInternalCallbackSpan(ctx, spanName, sc, tracingSpec)
+			ctx, span = diag.StartPubsubConsumerSpan(ctx, spanName, sc, tracingSpec)
 			// span is nil if tracing is disabled (sampling rate is 0)
 			if span != nil {
 				ctx = diag.SpanContextToGRPCMetadata(ctx, span.SpanContext())

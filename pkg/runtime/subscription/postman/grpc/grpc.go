@@ -136,6 +136,30 @@ func (g *grpc) Deliver(ctx context.Context, msg *pubsub.SubscribedMessage) error
 	return fmt.Errorf("unknown status returned from app while processing pub/sub event %v, status: %v, err: %w", cloudEvent[contribpubsub.IDField], res.GetStatus(), rterrors.NewRetriable(nil))
 }
 
+func (g *grpc) StartBulkPubSubConsumerSpanFromCloudEvent(ctx context.Context, cloudEvent map[string]interface{}) trace.Span {
+	var span trace.Span
+
+	iTraceID := cloudEvent[contribpubsub.TraceParentField]
+	if iTraceID == nil {
+		iTraceID = cloudEvent[contribpubsub.TraceIDField]
+	}
+	if iTraceID != nil {
+		if traceID, ok := iTraceID.(string); ok {
+			sc, _ := diag.SpanContextFromW3CString(traceID)
+			// no ops if trace is off
+			spanName := "/dapr.proto.runtime.v1.Dapr/BulkSubscribeEvent"
+			ctx, span = diag.StartPubsubConsumerSpan(ctx, spanName, sc, g.tracingSpec)
+			if span != nil {
+				return span
+			}
+		} else {
+			log.Warnf("ignored non-string traceid value: %v", iTraceID)
+
+		}
+	}
+	return nil
+}
+
 // DeliverBulk publishes bulk message to a subscriber using gRPC and takes care
 // of corresponding responses.
 func (g *grpc) DeliverBulk(ctx context.Context, req *postman.DeliverBulkRequest) error {
@@ -145,9 +169,26 @@ func (g *grpc) DeliverBulk(ctx context.Context, req *postman.DeliverBulkRequest)
 
 	items := make([]*rtv1.TopicEventBulkRequestEntry, len(psm.PubSubMessages))
 	entryRespReceived := make(map[string]bool, len(psm.PubSubMessages))
+	spans := make([]trace.Span, len(psm.PubSubMessages))
+	n := 0
 	for i, pubSubMsg := range psm.PubSubMessages {
 		entry := pubSubMsg.Entry
-		item, err := pubsub.FetchEntry(req.RawPayload, entry, psm.PubSubMessages[i].CloudEvent)
+		cloudEvent := pubSubMsg.CloudEvent
+
+		span := g.StartBulkPubSubConsumerSpanFromCloudEvent(ctx, cloudEvent)
+		var traceID string
+		if span != nil {
+			spans[n] = span
+			n++
+			traceID = diag.SpanContextToW3CString(span.SpanContext())
+			cloudEvent[contribpubsub.TraceParentField] = traceID
+			cloudEvent[contribpubsub.TraceIDField] = traceID
+		}
+		item, err := pubsub.FetchEntry(req.RawPayload, entry, cloudEvent)
+		if span != nil {
+			item.Metadata[contribpubsub.TraceParentField] = traceID
+		}
+
 		if err != nil {
 			bscData.BulkSubDiag.StatusWiseDiag[string(contribpubsub.Retry)]++
 			todo.AddBulkResponseEntry(bulkResponses, entry.EntryId, err)
@@ -155,6 +196,9 @@ func (g *grpc) DeliverBulk(ctx context.Context, req *postman.DeliverBulkRequest)
 		}
 		items[i] = item
 	}
+
+	spans = spans[:n]
+	defer todo.EndSpans(spans)
 
 	uuidObj, err := uuid.NewRandom()
 	if err != nil {
@@ -170,33 +214,6 @@ func (g *grpc) DeliverBulk(ctx context.Context, req *postman.DeliverBulkRequest)
 		Path:       psm.Path,
 	}
 
-	spans := make([]trace.Span, len(psm.PubSubMessages))
-	n := 0
-	for _, pubSubMsg := range psm.PubSubMessages {
-		cloudEvent := pubSubMsg.CloudEvent
-		iTraceID := cloudEvent[contribpubsub.TraceParentField]
-		if iTraceID == nil {
-			iTraceID = cloudEvent[contribpubsub.TraceIDField]
-		}
-		if iTraceID != nil {
-			if traceID, ok := iTraceID.(string); ok {
-				sc, _ := diag.SpanContextFromW3CString(traceID)
-
-				// no ops if trace is off
-				var span trace.Span
-				ctx, span = diag.StartInternalCallbackSpan(ctx, "pubsub/"+psm.Topic, sc, g.tracingSpec)
-				if span != nil {
-					ctx = diag.SpanContextToGRPCMetadata(ctx, span.SpanContext())
-					spans[n] = span
-					n++
-				}
-			} else {
-				log.Warnf("ignored non-string traceid value: %v", iTraceID)
-			}
-		}
-	}
-	spans = spans[:n]
-	defer todo.EndSpans(spans)
 	ctx = invokev1.WithCustomGRPCMetadata(ctx, psm.Metadata)
 	ctx = g.channel.AddAppTokenToContext(ctx)
 

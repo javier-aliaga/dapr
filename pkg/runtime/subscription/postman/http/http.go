@@ -80,7 +80,8 @@ func (h *http) Deliver(ctx context.Context, msg *pubsub.SubscribedMessage) error
 	if iTraceID != nil {
 		traceID := iTraceID.(string)
 		sc, _ := diag.SpanContextFromW3CString(traceID)
-		ctx, span = diag.StartInternalCallbackSpan(ctx, "pubsub/"+msg.Topic, sc, h.tracingSpec)
+		spanName := "/dapr.proto.runtime.v1.Dapr/SubscribeEvent"
+		ctx, span = diag.StartPubsubConsumerSpan(ctx, spanName, sc, h.tracingSpec)
 	}
 
 	start := time.Now()
@@ -222,7 +223,8 @@ func (h *http) DeliverBulk(ctx context.Context, req *postman.DeliverBulkRequest)
 			traceID := iTraceID.(string)
 			sc, _ := diag.SpanContextFromW3CString(traceID)
 			var span trace.Span
-			ctx, span = diag.StartInternalCallbackSpan(ctx, "pubsub/"+psm.Topic, sc, h.tracingSpec)
+			spanName := "/dapr.proto.runtime.v1.Dapr/BulkSubscribeEvent"
+			ctx, span = diag.StartPubsubConsumerSpan(ctx, spanName, sc, h.tracingSpec)
 			if span != nil {
 				spans[n] = span
 				n++

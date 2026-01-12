@@ -60,26 +60,15 @@ func TestMain(m *testing.M) {
 			IngressEnabled:    true,
 			IngressPort:       3000,
 			MetricsEnabled:    true,
-			DaprMemoryLimit:   "800Mi",
-			DaprMemoryRequest: "800Mi",
-			AppMemoryLimit:    "800Mi",
-			AppMemoryRequest:  "800Mi",
-			AppPort:           -1,
-		},
-		{
-			AppName:           appNamePrefix + backend + "-scheduler",
-			DaprEnabled:       true,
-			ImageName:         "perf-workflowsapp",
-			Replicas:          1,
-			IngressEnabled:    true,
-			IngressPort:       3000,
-			MetricsEnabled:    true,
-			DaprMemoryLimit:   "800Mi",
-			DaprMemoryRequest: "800Mi",
-			AppMemoryLimit:    "800Mi",
-			AppMemoryRequest:  "800Mi",
-			AppPort:           -1,
-			Config:            "featureactorreminderscheduler",
+			DaprCPULimit:      "1.0",
+			DaprCPURequest:    "0.5",
+			DaprMemoryLimit:   "2Gi",
+			DaprMemoryRequest: "1Gi",
+			AppCPULimit:       "2.0",
+			AppCPURequest:     "1.0",
+			AppMemoryLimit:    "2Gi",
+			AppMemoryRequest:  "1Gi",
+			AppPort:           3000,
 		},
 	}
 
@@ -107,7 +96,7 @@ func runk6test(t *testing.T, config K6RunConfig) *loadtest.K6RunnerMetricsSummar
 	bts, err := json.MarshalIndent(sm, "", " ")
 	require.NoError(t, err)
 	require.True(t, sm.Pass, fmt.Sprintf("test has not passed, results %s", string(bts)))
-	t.Logf("test summary `%s`", string(bts))
+	utils.LogPerfTestSummary(bts)
 	return sm.RunnersResults[0]
 }
 
@@ -118,6 +107,7 @@ func addTestResults(t *testing.T, testName string, testAppName string, result *l
 	require.NoError(t, err)
 	restarts, err := tr.Platform.GetTotalRestarts(testAppName)
 	require.NoError(t, err)
+	utils.LogPerfTestResourceUsage(appUsage, sidecarUsage, restarts, 0)
 
 	return table.
 		OutputInt(testName+"VUs Max", result.VusMax.Values.Max).
@@ -156,8 +146,6 @@ func testWorkflow(t *testing.T, workflowName string, testAppName string, inputs 
 
 				// Check if test app endpoint is available
 				require.NoError(t, utils.HealthCheckApps(externalURL))
-
-				time.Sleep(5 * time.Second)
 
 				// Initialize the workflow runtime
 				url := fmt.Sprintf("http://%s/start-workflow-runtime", externalURL)
@@ -232,4 +220,13 @@ func TestWorkflowWithDifferentPayloads(t *testing.T) {
 	inputs := []string{"10000", "50000", "100000"}
 	rateChecks := [][]string{{"rate==1"}, {"rate==1"}, {"rate==1"}}
 	testWorkflow(t, workflowName, appNamePrefix, inputs, scenarios, rateChecks, true, true)
+}
+
+// Runs test for delaying workflows: 500 VUs, 10,000 iterations
+func TestDelayWorkflowsAtScale(t *testing.T) {
+	workflowName := "delay_wf"
+	inputs := []string{"5000"}           // delay in milliseconds (5s)
+	scenarios := []string{"t_500_10000"} // t_workflowCount_iterations
+	rateChecks := [][]string{{"rate==1"}}
+	testWorkflow(t, workflowName, appNamePrefix, inputs, scenarios, rateChecks, true, false)
 }

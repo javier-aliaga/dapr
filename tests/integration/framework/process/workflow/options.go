@@ -40,18 +40,12 @@ type daprdOptionConfig struct {
 }
 
 type options struct {
-	daprds          int
-	enableScheduler bool
+	daprds int
+	skipDB bool
 
 	orchestrators []orchestratorConfig
 	activities    []activityConfig
 	daprdOptions  []daprdOptionConfig
-}
-
-func WithScheduler(enable bool) Option {
-	return func(o *options) {
-		o.enableScheduler = enable
-	}
 }
 
 func WithAddOrchestrator(t *testing.T, name string, or func(*task.OrchestrationContext) (any, error)) Option {
@@ -100,5 +94,11 @@ func WithDaprdOptions(index int, opts ...daprd.Option) Option {
 			index: index,
 			opts:  opts,
 		})
+	}
+}
+
+func WithNoDB() Option {
+	return func(o *options) {
+		o.skipDB = true
 	}
 }

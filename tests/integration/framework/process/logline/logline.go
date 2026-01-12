@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -38,7 +39,9 @@ type LogLine struct {
 	stderr            io.ReadCloser
 	stderrExp         io.WriteCloser
 	stderrLinContains map[string]bool
-	got               bytes.Buffer
+
+	lock sync.Mutex
+	got  bytes.Buffer
 
 	outCheck chan map[string]bool
 	done     atomic.Int32
@@ -100,6 +103,10 @@ func (l *LogLine) FoundAll() bool {
 	return l.done.Load() == 2
 }
 
+func (l *LogLine) FoundNone() bool {
+	return l.done.Load() == 0
+}
+
 func (l *LogLine) Cleanup(t *testing.T) {
 	select {
 	case <-l.doneCh:
@@ -108,7 +115,9 @@ func (l *LogLine) Cleanup(t *testing.T) {
 	}
 	for range 2 {
 		for expLine := range <-l.outCheck {
+			l.lock.Lock()
 			assert.Fail(t, "expected to log line: "+expLine, l.got.String())
+			l.lock.Unlock()
 		}
 	}
 }
@@ -130,7 +139,9 @@ func (l *LogLine) checkOut(t *testing.T, ctx context.Context, expLines map[strin
 		//nolint:testifylint
 		assert.NoError(t, err)
 
+		l.lock.Lock()
 		l.got.Write(append(line, '\n'))
+		l.lock.Unlock()
 
 		for expLine := range expLines {
 			if strings.Contains(string(line), expLine) {
@@ -150,6 +161,16 @@ func (l *LogLine) Stderr() io.WriteCloser {
 	return l.stderrExp
 }
 
+func (l *LogLine) StdoutBuffer() []byte {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	return l.got.Bytes()
+}
+
 func (l *LogLine) EventuallyFoundAll(t *testing.T) {
 	assert.Eventually(t, l.FoundAll, time.Second*15, time.Millisecond*10)
+}
+
+func (l *LogLine) EventuallyFoundNone(t *testing.T) {
+	assert.Eventually(t, l.FoundNone, time.Second*15, time.Millisecond*10)
 }

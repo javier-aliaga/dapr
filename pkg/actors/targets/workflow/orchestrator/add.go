@@ -29,7 +29,12 @@ func (o *orchestrator) addWorkflowEvent(ctx context.Context, historyEventBytes [
 	}
 
 	if state == nil {
+		log.Errorf("Workflow actor '%s': cannot add event to workflow as state has been purged. Ignoring event.", o.actorID)
 		return api.ErrInstanceNotFound
+	}
+
+	if o.rstate.Stalled != nil {
+		return api.ErrStalled
 	}
 
 	var e backend.HistoryEvent
@@ -56,7 +61,11 @@ func (o *orchestrator) addWorkflowEvent(ctx context.Context, historyEventBytes [
 		sourceAppID = e.GetRouter().GetSourceAppID()
 	}
 
-	if _, err := o.createReminder(ctx, "new-event", nil, nil, sourceAppID); err != nil {
+	dueTime := e.Timestamp.AsTime()
+	if len(state.History) > 0 {
+		dueTime = state.History[0].Timestamp.AsTime()
+	}
+	if _, err := o.createWorkflowReminder(ctx, "new-event", nil, dueTime, sourceAppID); err != nil {
 		return err
 	}
 
